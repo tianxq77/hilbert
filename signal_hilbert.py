@@ -1,15 +1,30 @@
 import logging
+from typing import overload
 
 import numpy as np
 from scipy.signal import hilbert, butter, filtfilt
 import pandas as pd
 
 from plotter import plot_hilbert_transform
-
+from typing import List
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
+# 生成一个测试信号：正弦波 + 随机噪声
+def generate_test_signal(duration=3, fs=2000, noise_level=0.5):
+    # 生成时间序列（3秒，采样频率2000Hz）
+    t = np.linspace(0, duration, int(fs * duration))
 
+    # 正弦波信号：50Hz的正弦波
+    sine_wave = np.sin(2 * np.pi * 50 * t)
+
+    # 随机噪声
+    noise = noise_level * np.random.randn(len(t))
+
+    # 合成信号：正弦波 + 噪声
+    signal = sine_wave + noise
+
+    return t, signal
 
 def butter_lowpass(cutoff, fs, order=4):
     """设计一个低通Butterworth滤波器"""
@@ -43,19 +58,17 @@ def find_zero(phase):
     zero_phase_indices = np.where(np.abs(phase) < threshold)[0]
     return zero_phase_indices
 
-def process_signal(signal):
+def process_signal(signal, zero_crossings: List[int] = None):
     fs = 2000  # 采样频率 2000 Hz
     cutoff = 100  # 截止频率 100 Hz
     # 降噪：首先对信号进行低通滤波
     signal = lowpass_filter(signal, cutoff, fs)
-    # 复值信号
-    analytic_signal = hilbert(signal)
-    # 瞬时相位
-    phase = np.angle(analytic_signal)
-    zero_crossings = find_zero_crossings(phase)
-    # 复信号的虚部
-    # imag = np.imag(analytic_signal)
-    # zero_crossings = find_zero_crossings(imag)
+
+    # 如果没有提供零交叉点，则计算零交叉点
+    if zero_crossings is None:
+        analytic_signal = hilbert(signal)
+        phase = np.angle(analytic_signal)
+        zero_crossings = find_zero_crossings(phase)
 
     if len(zero_crossings) < 2:
         logging.warning(f"Device signal has insufficient zero-crossings: {len(zero_crossings)} found.")
@@ -66,48 +79,57 @@ def process_signal(signal):
 
     for i in range(len(zero_crossings) - 1):
         time_points.append(zero_crossings[i])
-        signal_diffs.append(signal[zero_crossings[i + 1]] - signal[zero_crossings[i]])
+        # 在零点之间的信号范围内，计算最大值和最小值的差
+        signal_segment = signal[zero_crossings[i]:zero_crossings[i + 1]]
+        max_value = np.max(signal_segment)
+        min_value = np.min(signal_segment)
+        signal_diffs.append(max_value - min_value)
 
-    return time_points, signal_diffs
+    return zero_crossings, signal_diffs
 
-
-def main(data,types ,devices):
+def main(data, types, devices):
     results = {}
     # 处理每个设备的数据
-    # for device in range(24):
-    #     for type_idx, type_name in enumerate(types):
-    for type_idx, type_name in enumerate(types):
-        for device in range(devices):
-            col_idx = device * 3 + type_idx
-            signal = data
-            time_points, signal_diffs = process_signal(signal)
-            plot_hilbert_transform(signal, time_points,'a')
+    for device in range(devices):
+        col_idx = device * 3 + 1
+        signal_vref = data[col_idx]  # vref的信号列
+        zero_crossings, signal_diffs_vref = process_signal(signal_vref)
+        signal_vac = data[col_idx + 1]  # vac的信号列
+        zero_crossings, signal_diffs_vac = process_signal(signal_vac, zero_crossings)
+        time_points = zero_crossings[:-1]
 
-            # 创建列名
-            device_num = device + 1
-            col_name_time = f'Device{device_num}_{type_name}_Time'
-            col_name_diff = f'Device{device_num}_{type_name}_Signal_Diff'
-
-            results[col_name_time] = time_points
-            results[col_name_diff] = signal_diffs
+        device_num = device + 1
+        col_name_time = f'Device{device_num}_vref_Time'
+        col_name_diff1 = f'Device{device_num}_vref_Signal_Diff'
+        col_name_diff2 = f'Device{device_num}_vac_Signal_Diff'
+        results[col_name_time] = time_points
+        results[col_name_diff1] = signal_diffs_vref
+        results[col_name_diff2] = signal_diffs_vac
 
     max_length = max(len(v) for v in results.values())
     for key in results:
         results[key] = results[key] + [np.nan] * (max_length - len(results[key]))
 
     df = pd.DataFrame(results)
-
     df.to_csv('results.csv', index=False)
     logging.info("Results saved successfully.")
 
-
 if __name__ == "__main__":
-    # data = np.loadtxt('data.csv', delimiter=',')
-    # types = ['Iac','Vac',  'rcef']
-    # main(data,types ,24)
-    # 生成一个测试信号：正弦波 + 高频噪声
-    t = np.linspace(0, 6000 * 0.0005, 6000)  # 时间轴（6000个点，每个时间点0.5ms）
-    signal = np.sin(2 * np.pi * 50 * t) + 0.5 * np.random.randn(6000)  # 50Hz的正弦波加噪声
-    types = ['type1']
-    devices = 1
-    main(signal , types, devices)
+    # 生成一个测试信号
+    t, signal = generate_test_signal()
+
+    # 模拟数据传入 main 函数的格式
+    # 假设我们有24个设备的数据，每个设备有vref和vac两列信号
+    data = []
+    for i in range(24):  # 假设24个设备
+        vref_signal = signal + 0.2 * np.random.randn(len(signal))  # vref信号带有轻微噪声
+        vac_signal = signal + 0.3 * np.random.randn(len(signal))  # vac信号带有稍微大的噪声
+        data.append(np.column_stack([t, vref_signal, vac_signal]))  # 结合t,vref和vac信号
+
+    data = np.hstack(data)  # 将所有设备的数据合并为一个大数组
+
+    types = ['type1']  # 信号类型
+    devices = 24  # 24个设备
+
+    # 调用 main 函数并传入数据
+    main(data, types, devices)
