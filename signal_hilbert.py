@@ -72,52 +72,107 @@ def process_signal(signal, zero_crossings: List[int] = None):
 
     if len(zero_crossings) < 2:
         logging.warning(f"Device signal has insufficient zero-crossings: {len(zero_crossings)} found.")
-        return [], []
+        return [], [],[]
 
-    time_points = []
+    # time_points = []
     signal_diffs = []
+    phases = []#记录瞬时相位
 
     for i in range(len(zero_crossings) - 1):
-        time_points.append(zero_crossings[i])
+        # ime_points.append(zero_crossings[i])
         # 在零点之间的信号范围内，计算最大值和最小值的差
         signal_segment = signal[zero_crossings[i]:zero_crossings[i + 1]]
         max_value = np.max(signal_segment)
         min_value = np.min(signal_segment)
         signal_diffs.append(max_value - min_value)
 
-    return zero_crossings, signal_diffs
+        # 计算瞬时相位
+        if zero_crossings is not None:
+            analytic_signal = hilbert(signal)
+            inst_phase = np.angle(analytic_signal)
+        phases.append(inst_phase[zero_crossings[i]])
 
-def main(data, types, devices):
+    return zero_crossings, signal_diffs, phases
+
+
+def process_device_group(data, start_device, end_device):
     results = {}
-    # 处理每个设备的数据(保持原有取数据的格式)
-    for device in range(devices):
+    # # 处理每组设备的数据(根据原有取数据的格式修改)
+    ref_device = start_device# 选择每组的第一台设备
+    ref_signal = data[ref_device * 3 + 1]# 选择每组的第一台设备的vref信号
+    zero_crossings, _, _ = process_signal(ref_signal)
+
+    # 将每组的第一台设备vref相位0点时刻作为第一列
+    results['Time'] = zero_crossings[:-1]
+
+    # 处理组内每个设备(根据原有取数据的格式修改)
+    for device in range(start_device, end_device):
         col_idx = device * 3 + 1
-        signal_vref = data[col_idx]  # vref的信号列(保持原有格式)
-        zero_crossings, signal_diffs_vref = process_signal(signal_vref)
-        signal_vac = data[col_idx + 1]  # vac的信号列(保持原有格式)
-        zero_crossings, signal_diffs_vac = process_signal(signal_vac, zero_crossings)
-        time_points = zero_crossings[:-1]
+        # 处理vref信号
+        signal_vref = data[col_idx] # vref的信号列(保持原有格式)
+        _, signal_diffs_vref, phases_vref = process_signal(signal_vref, zero_crossings)
 
-        device_num = device + 1# 设备号（保持原有格式)
-        col_name_time = f'Device{device_num}_vref_Time'
-        col_name_diff1 = f'Device{device_num}_vref_Signal_Diff'
-        col_name_diff2 = f'Device{device_num}_vac_Signal_Diff'
-        results[col_name_time] = time_points
-        results[col_name_diff1] = signal_diffs_vref
-        results[col_name_diff2] = signal_diffs_vac
+        # 处理vac信号
+        signal_vac = data[col_idx + 1]# vac的信号列(保持原有格式)
+        _, signal_diffs_vac, phases_vac = process_signal(signal_vac, zero_crossings)
 
-        plot_results(device_num,time_points ,signal_diffs_vref,signal_diffs_vac)
-        # print(time_points)
-        # print(signal_diffs_vref)
-        # print(signal_diffs_vac)
+        device_num = device + 1
+        results[f'Device{device_num}_vref_Signal_Diff'] = signal_diffs_vref
+        results[f'Device{device_num}_vref_Phase'] = phases_vref
+        results[f'Device{device_num}_vac_Signal_Diff'] = signal_diffs_vac
+        results[f'Device{device_num}_vac_Phase'] = phases_vac
+        # logging.debug(f"Zero crossings length: {len(zero_crossings)-1}")
+        # logging.debug(f"VREF diffs length: {len(signal_diffs_vref)}")
+        # logging.debug(f"VAC diffs length: {len(signal_diffs_vac)}")
+
 
     max_length = max(len(v) for v in results.values())
     for key in results:
         results[key] = results[key] + [np.nan] * (max_length - len(results[key]))
+    # 在保存之前确保所有数据长度一致
+    # min_length = len(results['Time'])
+    # for key in results:
+    #     if len(results[key]) > min_length:
+    #         logging.warning(f" {key} has something wrong,truncating {key} from {len(results[key])} to {min_length}")
+    #         results[key] = results[key][:min_length]
 
     df = pd.DataFrame(results)
-    df.to_csv('results.csv', index=False)
-    logging.info("Results saved successfully.")
+    df.to_csv(f'results_devices_{start_device + 1}_to_{end_device}.csv', index=False)
+    logging.info(f"Results for devices_{start_device + 1}_to_{end_device} saved successfully.")
+
+    return df
+
+# def main(data, types, devices):
+#     results = {}
+#     # 处理每个设备的数据(保持原有取数据的格式)
+#     for device in range(devices):
+#         col_idx = device * 3 + 1
+#         signal_vref = data[col_idx]  # vref的信号列(保持原有格式)
+#         zero_crossings, signal_diffs_vref = process_signal(signal_vref)
+#         signal_vac = data[col_idx + 1]  # vac的信号列(保持原有格式)
+#         zero_crossings, signal_diffs_vac = process_signal(signal_vac, zero_crossings)
+#         time_points = zero_crossings[:-1]
+#
+#         device_num = device + 1# 设备号（保持原有格式)
+#         col_name_time = f'Device{device_num}_vref_Time'
+#         col_name_diff1 = f'Device{device_num}_vref_Signal_Diff'
+#         col_name_diff2 = f'Device{device_num}_vac_Signal_Diff'
+#         results[col_name_time] = time_points
+#         results[col_name_diff1] = signal_diffs_vref
+#         results[col_name_diff2] = signal_diffs_vac
+#
+#         plot_results(device_num,time_points ,signal_diffs_vref,signal_diffs_vac)
+#         # print(time_points)
+#         # print(signal_diffs_vref)
+#         # print(signal_diffs_vac)
+#
+#     max_length = max(len(v) for v in results.values())
+#     for key in results:
+#         results[key] = results[key] + [np.nan] * (max_length - len(results[key]))
+#
+#     df = pd.DataFrame(results)
+#     df.to_csv('results.csv', index=False)
+#     logging.info("Results saved successfully.")
 
 if __name__ == "__main__":
     # 生成一个测试信号
@@ -137,6 +192,10 @@ if __name__ == "__main__":
     devices = 24  # 24个设备
 
     # 调用 main 函数并传入数据
-    main(data, types, devices)
+    # main(data, types, devices)
+    #将设备分组处理
+    device_groups = [(0, 6), (6, 12), (12, 18), (18, 24)]
+    for start, end in device_groups:
+        process_device_group(data, start, end)
 
 
