@@ -14,16 +14,12 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 def generate_test_signal(duration=3, fs=2000, noise_level=0.5):
     # 生成时间序列（3秒，采样频率2000Hz）
     t = np.linspace(0, duration, int(fs * duration))
-
     # 正弦波信号：50Hz的正弦波
     sine_wave = np.sin(2 * np.pi * 50 * t)
-
     # 随机噪声
     noise = noise_level * np.random.randn(len(t))
-
     # 合成信号：正弦波 + 噪声
     signal = sine_wave + noise
-
     return t, signal
 
 def butter_lowpass(cutoff, fs, order=4):
@@ -69,6 +65,13 @@ def process_signal(signal, zero_crossings: List[int] = None):
         analytic_signal = hilbert(signal)
         phase = np.angle(analytic_signal)
         zero_crossings = find_zero_crossings(phase)
+        first_point = zero_crossings[0]
+        last_point = zero_crossings[-1]
+        if first_point > 0:
+            zero_crossings.insert(0, 0)
+        if last_point < len(signal) - 1:
+            zero_crossings.append(len(signal) - 1)
+
 
     if len(zero_crossings) < 2:
         logging.warning(f"Device signal has insufficient zero-crossings: {len(zero_crossings)} found.")
@@ -92,19 +95,24 @@ def process_signal(signal, zero_crossings: List[int] = None):
             inst_phase = np.angle(analytic_signal)
         phases.append(inst_phase[zero_crossings[i]])
 
+    # phases.append(np.angle(hilbert(signal)[-1]))   # 终点的瞬时相位
+
+
+
     return zero_crossings, signal_diffs, phases
 
 
-def process_device_group(data, start_device, end_device):
+def process_device_group(data, start_device, end_device,start_time=0):
     results = {}
     # # 处理每组设备的数据(根据原有取数据的格式修改)
     ref_device = start_device# 选择每组的第一台设备
     ref_signal = data[ref_device * 3 + 1]# 选择每组的第一台设备的vref信号
     zero_crossings, _, _ = process_signal(ref_signal)
 
-    # 将每组的第一台设备vref相位0点时刻作为第一列
-    results['Time'] = zero_crossings[:-1]
-
+    # 创建 time_point 列，并将 start_time 加到 zero_crossings 中的每个值
+    time_point = [start_time + x for x in zero_crossings]
+    # print(time_point)
+    results['Time'] = time_point[:-1]
     # 处理组内每个设备(根据原有取数据的格式修改)
     for device in range(start_device, end_device):
         col_idx = device * 3 + 1
@@ -115,26 +123,29 @@ def process_device_group(data, start_device, end_device):
         # 处理vac信号
         signal_vac = data[col_idx + 1]# vac的信号列(保持原有格式)
         _, signal_diffs_vac, phases_vac = process_signal(signal_vac, zero_crossings)
+        if device==start_device:
+            # phases_vref[1:] = np.round(phases_vref[1:])  # 对第一台设备的相位取整
+            # phases_vref = np.floor(phases_vref)  # 对第一台设备的相位向下取整
+            phases_vref[1:] = np.zeros_like(phases_vref[1:])  # 将第一台设备的瞬时相位设置为0(除了起点时刻)
+
 
         device_num = device + 1
         results[f'Device{device_num}_vref_Signal_Diff'] = signal_diffs_vref
         results[f'Device{device_num}_vref_Phase'] = phases_vref
         results[f'Device{device_num}_vac_Signal_Diff'] = signal_diffs_vac
         results[f'Device{device_num}_vac_Phase'] = phases_vac
-        # logging.debug(f"Zero crossings length: {len(zero_crossings)-1}")
-        # logging.debug(f"VREF diffs length: {len(signal_diffs_vref)}")
-        # logging.debug(f"VAC diffs length: {len(signal_diffs_vac)}")
-
-
-    max_length = max(len(v) for v in results.values())
-    for key in results:
-        results[key] = results[key] + [np.nan] * (max_length - len(results[key]))
-    # 在保存之前确保所有数据长度一致
-    # min_length = len(results['Time'])
+    # 在保存之前确保所有数据长度一致（两种方式）
+    # 补nan
+    # max_length = max(len(v) for v in results.values())
     # for key in results:
-    #     if len(results[key]) > min_length:
-    #         logging.warning(f" {key} has something wrong,truncating {key} from {len(results[key])} to {min_length}")
-    #         results[key] = results[key][:min_length]
+    #     if len(results[key])< max_length:
+    #         results[key] = results[key] + [np.nan] * (max_length - len(results[key]))
+    # 截取
+    min_length = len(results['Time'])
+    for key in results:
+        if len(results[key]) > min_length:
+            logging.warning(f" {key} has something wrong,truncating {key} from {len(results[key])} to {min_length}")
+            results[key] = results[key][:min_length]
 
     df = pd.DataFrame(results)
     df.to_csv(f'results_devices_{start_device + 1}_to_{end_device}.csv', index=False)
@@ -196,6 +207,6 @@ if __name__ == "__main__":
     #将设备分组处理
     device_groups = [(0, 6), (6, 12), (12, 18), (18, 24)]
     for start, end in device_groups:
-        process_device_group(data, start, end)
+        process_device_group(data, start, end,200)
 
 
