@@ -5,7 +5,7 @@ import numpy as np
 from scipy.signal import hilbert, butter, filtfilt
 import pandas as pd
 
-from plotter import plot_hilbert_transform
+from plotter import plot_hilbert_transform, plot_results
 from typing import List
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -89,22 +89,27 @@ def process_signal(signal, zero_crossings: List[int] = None):
 
 def main(data, types, devices):
     results = {}
-    # 处理每个设备的数据
+    # 处理每个设备的数据(保持原有取数据的格式)
     for device in range(devices):
         col_idx = device * 3 + 1
-        signal_vref = data[col_idx]  # vref的信号列
+        signal_vref = data[col_idx]  # vref的信号列(保持原有格式)
         zero_crossings, signal_diffs_vref = process_signal(signal_vref)
-        signal_vac = data[col_idx + 1]  # vac的信号列
+        signal_vac = data[col_idx + 1]  # vac的信号列(保持原有格式)
         zero_crossings, signal_diffs_vac = process_signal(signal_vac, zero_crossings)
         time_points = zero_crossings[:-1]
 
-        device_num = device + 1
+        device_num = device + 1# 设备号（保持原有格式)
         col_name_time = f'Device{device_num}_vref_Time'
         col_name_diff1 = f'Device{device_num}_vref_Signal_Diff'
         col_name_diff2 = f'Device{device_num}_vac_Signal_Diff'
         results[col_name_time] = time_points
         results[col_name_diff1] = signal_diffs_vref
         results[col_name_diff2] = signal_diffs_vac
+
+        plot_results(device_num,time_points ,signal_diffs_vref,signal_diffs_vac)
+        # print(time_points)
+        # print(signal_diffs_vref)
+        # print(signal_diffs_vac)
 
     max_length = max(len(v) for v in results.values())
     for key in results:
@@ -126,10 +131,12 @@ if __name__ == "__main__":
         vac_signal = signal + 0.3 * np.random.randn(len(signal))  # vac信号带有稍微大的噪声
         data.append(np.column_stack([t, vref_signal, vac_signal]))  # 结合t,vref和vac信号
 
-    data = np.hstack(data)  # 将所有设备的数据合并为一个大数组
+    data = np.hstack(data)
 
     types = ['type1']  # 信号类型
     devices = 24  # 24个设备
 
     # 调用 main 函数并传入数据
     main(data, types, devices)
+
+

@@ -5,6 +5,28 @@ plt.rcParams['font.sans-serif'] = ['SimHei']  # 设置默认字体为SimHei显�
 plt.rcParams['axes.unicode_minus'] = False  # 解决保存图像时负号'-'显示为方块的问题
 
 
+
+def plot_results(device_num,time_points ,signal_diff_vref,signal_diff_vac):
+        # 绘制每个设备的信号相位过零点差值图
+        plt.figure(figsize=(10, 6))
+        plt.plot(time_points, signal_diff_vref, label=f'Device {device_num} vref Signal Diff', color='b')
+        plt.plot(time_points, signal_diff_vac, label=f'Device {device_num} vac Signal Diff', color='g')
+        # 绘制相位过零点
+        plt.scatter(time_points, signal_diff_vref, color='b', s=100, zorder=5, label="Zero Crossings (vref)")
+        plt.scatter(time_points, signal_diff_vac, color='r', s=100, zorder=5, label="Zero Crossings (vac)")
+
+        plt.xlabel('Time (s)')
+        plt.ylabel('Signal Diff')
+        plt.title(f'Device {device_num} Signal Differences')
+        plt.legend()
+
+        plt.show()
+
+        # # 保存图形为 PNG 文件
+        # plt.savefig(f'device_{device_num}_signal_diff.png')
+        # plt.close()
+
+
 def plot_hilbert_transform(signal, time_points, device_name, sample_range=None):
     """
     绘制希尔伯特变换结果和相位过零点
