@@ -198,6 +198,7 @@ if __name__ == "__main__":
         data.append(np.column_stack([t, vref_signal, vac_signal]))  # 结合t,vref和vac信号
 
     data = np.hstack(data)
+    print(data)
 
     types = ['type1']  # 信号类型
     devices = 24  # 24个设备
